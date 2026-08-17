@@ -3,7 +3,7 @@ import {
 	type MessageSchema,
 } from "@gettersethya/yt-livechat-client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatStyleToggle } from "@/components/chat-style-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -25,10 +25,14 @@ if (!API_BASE_URL) {
 	throw new Error("VITE_API_BASE_URL is not set. Copy .env.example to .env.");
 }
 
-const client = new LiveChatApiClient({
-	baseUrl: API_BASE_URL,
-	videoUrl: "https://www.youtube.com/live/E7Qf9GbUaqk",
-});
+type Status = "connecting" | "live" | "ended" | "error";
+
+const statusLabel: Record<Status, string> = {
+	connecting: "Connecting",
+	live: "Live",
+	ended: "Ended",
+	error: "Error",
+};
 
 /** Keep the transcript bounded so a long stream does not grow without limit. */
 const MAX_MESSAGES = 5000;
@@ -57,16 +61,15 @@ const VIEWPORT_BACKGROUND: Record<ChatStyle, string> = {
 	whatsapp: "bg-[#efeae2] dark:bg-[#0b141a]",
 };
 
-type Status = "connecting" | "live" | "ended" | "error";
-
-const statusLabel: Record<Status, string> = {
-	connecting: "Connecting",
-	live: "Live",
-	ended: "Ended",
-	error: "Error",
-};
-
-function App() {
+function App({ videoId }: { videoId: string }) {
+	const client = useMemo(
+		() =>
+			new LiveChatApiClient({
+				baseUrl: API_BASE_URL,
+				videoUrl: videoId,
+			}),
+		[videoId],
+	);
 	const { chatStyle } = useChatStyle();
 	const [messages, setMessages] = useState<MessageSchema[]>([]);
 	const [status, setStatus] = useState<Status>("connecting");
@@ -152,7 +155,7 @@ function App() {
 			cancelled = true;
 			client.stop();
 		};
-	}, []);
+	}, [client]);
 
 	return (
 		<div className="flex h-svh flex-col bg-background text-foreground">
