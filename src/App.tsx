@@ -27,7 +27,7 @@ if (!API_BASE_URL) {
 
 const client = new LiveChatApiClient({
 	baseUrl: API_BASE_URL,
-	videoUrl: "https://www.youtube.com/live/N9fiS-KxGIA",
+	videoUrl: "https://www.youtube.com/live/E7Qf9GbUaqk",
 });
 
 /** Keep the transcript bounded so a long stream does not grow without limit. */
