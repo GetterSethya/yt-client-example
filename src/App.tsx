@@ -1,9 +1,7 @@
-import {
-	LiveChatApiClient,
-	type MessageSchema,
-} from "@gettersethya/yt-livechat-client";
+import { useLiveChat } from "@gettersethya/yt-livechat-client/react";
+import type { LiveChatStatus } from "@gettersethya/yt-livechat-client";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatStyleToggle } from "@/components/chat-style-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -25,7 +23,7 @@ if (!API_BASE_URL) {
 	throw new Error("VITE_API_BASE_URL is not set. Copy .env.example to .env.");
 }
 
-type Status = "connecting" | "live" | "ended" | "error";
+type Status = LiveChatStatus;
 
 const statusLabel: Record<Status, string> = {
 	connecting: "Connecting",
@@ -33,12 +31,6 @@ const statusLabel: Record<Status, string> = {
 	ended: "Ended",
 	error: "Error",
 };
-
-/** Keep the transcript bounded so a long stream does not grow without limit. */
-const MAX_MESSAGES = 5000;
-
-/** How many ids to remember for the total's dedupe before pruning the oldest. */
-const DEDUPE_WINDOW = 10000;
 
 /** Starting row height guess per style; measured heights replace it on render. */
 const ESTIMATED_ROW_HEIGHT: Record<ChatStyle, number> = {
@@ -62,27 +54,12 @@ const VIEWPORT_BACKGROUND: Record<ChatStyle, string> = {
 };
 
 function App({ videoId }: { videoId: string }) {
-	const client = useMemo(
-		() =>
-			new LiveChatApiClient({
-				baseUrl: API_BASE_URL,
-				videoUrl: videoId,
-			}),
-		[videoId],
-	);
 	const { chatStyle } = useChatStyle();
-	const [messages, setMessages] = useState<MessageSchema[]>([]);
-	const [status, setStatus] = useState<Status>("connecting");
-	const [detail, setDetail] = useState<string | null>(null);
-	/** Every message seen this session, including ones trimmed off the top. */
-	const [totalMessages, setTotalMessages] = useState(0);
+	const { messages, status, detail, totalMessages } = useLiveChat({
+		baseUrl: API_BASE_URL,
+		videoUrl: videoId,
+	});
 	const viewportRef = useRef<HTMLDivElement>(null);
-	/**
-	 * Ids already counted. StrictMode registers the listeners twice and the API
-	 * can resend a message across polls, so the total has to dedupe outside of
-	 * the transcript, which drops old messages.
-	 */
-	const seenIdsRef = useRef<Set<string>>(new Set());
 
 	const virtualizer = useVirtualizer({
 		count: messages.length,
@@ -105,57 +82,6 @@ function App({ videoId }: { videoId: string }) {
 	useEffect(() => {
 		virtualizer.measure();
 	}, [chatStyle, virtualizer]);
-
-	useEffect(() => {
-		client.on("connected", () => setStatus("live"));
-		client.on("message", (message) => {
-			const seen = seenIdsRef.current;
-
-			if (seen.has(message.id)) return;
-
-			// Sets keep insertion order, so the newest half is the tail. Pruning
-			// keeps the dedupe window well past what the API can resend.
-			if (seen.size >= DEDUPE_WINDOW) {
-				seenIdsRef.current = new Set(
-					Array.from(seen).slice(seen.size - DEDUPE_WINDOW / 2),
-				);
-			}
-
-			seenIdsRef.current.add(message.id);
-			setTotalMessages((total) => total + 1);
-			setMessages((prev) => {
-				const next = [...prev, message];
-				return next.length > MAX_MESSAGES
-					? next.slice(next.length - MAX_MESSAGES)
-					: next;
-			});
-		});
-		client.on("error", (error) => {
-			setStatus("error");
-			setDetail(`${error.code}: ${error.message}`);
-		});
-		client.on("end", (reason) => {
-			setStatus("ended");
-			setDetail(reason);
-		});
-		let cancelled = false;
-
-		client
-			.connect()
-			.then((c) => (cancelled ? undefined : c.start()))
-			.catch((error: unknown) => {
-				// stop() interrupts an in-flight start(), which rejects. That is the
-				// StrictMode remount (and unmount), not a connection failure.
-				if (cancelled) return;
-				setStatus("error");
-				setDetail(error instanceof Error ? error.message : String(error));
-			});
-
-		return () => {
-			cancelled = true;
-			client.stop();
-		};
-	}, [client]);
 
 	return (
 		<div className="flex h-svh flex-col bg-background text-foreground">
